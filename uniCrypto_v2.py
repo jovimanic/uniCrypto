@@ -3,7 +3,7 @@ import re
 import json
 import urllib3
 from timeit import default_timer as timer
-import fitz
+# import fitz
 import sys
 import coinaddrvalidator
 from attrs import asdict
@@ -11,6 +11,8 @@ from openpyxl import load_workbook
 import argparse
 from datetime import datetime
 from pathlib import Path
+import pandas as pd
+from termcolor import colored
 
 reDict = {
             'btc': r'([1][a-zA-HJ-NP-Z0-9]{25,39})|(3[a-zA-HJ-NP-Z0-9]{33})|([bc|bcrt|tb]1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{3,71})',
@@ -49,7 +51,7 @@ def getFiles(inputPath):
         for entry in os.scandir(inputPath):
             if entry.is_file() and 'DS_Store' not in entry.name.lower():
                 inputPathList.append(entry.path)
-        print(f'Processing directory: {inputPath}\n')
+        print(colored(f'Processing directory: {inputPath}\n', 'yellow'))
         return inputPathList
     except NotADirectoryError:
         return inputPath.split()
@@ -175,16 +177,45 @@ def getEnrichment(outputJsonList):
                         pass
                 else:
                     break
+                
+    outputData = {
+        'address': [],
+        'total_received': [],
+        'total_sent': [],
+        'balance': [],
+        'balance_usd': [],
+        'n_tx': []
+    }
+    
     for outputJson in outputJsonList['tasks']:
         for result in outputJson['found_stat']:
             for enrichData in enrichDataList:
                 if result['address'] == enrichData['address']:
                     result.update({'enrich_data': [enrichData]})
+            # extract only enrichment data for stdout display
+            if 'enrich_data' in result.keys():
+                for data in result['enrich_data']:
+                    if data['address'] not in outputData['address']:
+                        for key, value in data.items():
+                            if key == 'balance_usd':
+                                outputData[key].append('${:,}'.format(value))
+                            else:
+                                outputData[key].append(value)
+    
+    if outputData['address']:
+        disLen = len(outputData['address'])
+        if disLen > 10:
+            disLen = 10
+        print(f'\nTop {disLen} wallets by balance [max 10]:')
+        df = pd.DataFrame(outputData).sort_values(by=['balance'], ascending=False).head(10)
+        df.reset_index(drop=True, inplace=True)
+        print(df)
+        
     return outputJsonList
 
 
 def prepareOutput(outputJsonList, numAddys):
-    getOutput = input('\nEnter output file path [leave blank to save in root of target directory]: ')
+    getOutput = input(colored('\nEnter output file path [leave blank to save in root of target directory]: ', 'yellow'))
     if not getOutput:
         if os.path.isdir(args.i):
             outFile = os.path.join(args.i, '_extracted_crypto.json')
@@ -205,7 +236,7 @@ def prepareOutput(outputJsonList, numAddys):
         with open(os.path.join(Path(__file__).parent.resolve(), '_extracted_crypto.json'), 'w') as fileOut:
             fileOut.write(json.dumps(outputJsonList, indent=4))
     print(f'\nComplete! Processed {numAddys} address(es) in {round(timer() - start, 2)} seconds.')
-    print(f'\nOutput saved to {outFile}\n')
+    print(colored(f'\nOutput saved to {outFile}\n', 'green'))
 
 
 def fileHandler(inputPath):
